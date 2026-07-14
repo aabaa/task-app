@@ -286,7 +286,346 @@
 - モバイル時は詳細を全画面モーダルとして表示
 - キーボード操作: `Esc` でモーダル/ドロワーを閉じる
 
-## 6. 次の作業（仕様詳細化）
+## 6. APIエンドポイント仕様
+
+### 6.1 共通仕様
+- プロトコル: HTTPS
+- データ形式: JSON
+- 文字コード: UTF-8
+- ベースパス: `/api/v1`
+- 認証方式: Bearerトークン（JWT想定）
+- タイムゾーン: すべてUTCで送受信（ISO 8601）
+
+### 6.2 共通レスポンス形式
+
+#### 6.2.1 成功レスポンス
+```json
+{
+	"data": {},
+	"meta": {}
+}
+```
+
+#### 6.2.2 エラーレスポンス
+```json
+{
+	"error": {
+		"code": "VALIDATION_ERROR",
+		"message": "入力値が不正です",
+		"details": [
+			{
+				"field": "title",
+				"reason": "must not be empty"
+			}
+		]
+	}
+}
+```
+
+### 6.3 ステータスコード方針
+- `200 OK`: 取得・更新成功
+- `201 Created`: 作成成功
+- `204 No Content`: 削除成功
+- `400 Bad Request`: 不正なリクエスト
+- `401 Unauthorized`: 未認証
+- `403 Forbidden`: 権限不足
+- `404 Not Found`: 対象なし
+- `409 Conflict`: 一意制約違反など競合
+- `422 Unprocessable Entity`: バリデーションエラー
+- `500 Internal Server Error`: サーバー内部エラー
+
+### 6.4 認証・アカウントAPI
+
+#### 6.4.1 ユーザー登録
+- `POST /api/v1/auth/signup`
+- 認可: 不要
+- Request Body:
+```json
+{
+	"email": "user@example.com",
+	"password": "StrongPassword123",
+	"display_name": "Taro"
+}
+```
+- Response `201`:
+```json
+{
+	"data": {
+		"id": 1,
+		"email": "user@example.com",
+		"display_name": "Taro",
+		"created_at": "2026-07-14T12:00:00Z"
+	}
+}
+```
+
+#### 6.4.2 ログイン
+- `POST /api/v1/auth/login`
+- 認可: 不要
+- Request Body:
+```json
+{
+	"email": "user@example.com",
+	"password": "StrongPassword123"
+}
+```
+- Response `200`:
+```json
+{
+	"data": {
+		"access_token": "jwt-access-token",
+		"token_type": "Bearer",
+		"expires_in": 3600,
+		"user": {
+			"id": 1,
+			"email": "user@example.com",
+			"display_name": "Taro"
+		}
+	}
+}
+```
+
+#### 6.4.3 ログアウト
+- `POST /api/v1/auth/logout`
+- 認可: 必須
+- Request Body: なし
+- Response `200`:
+```json
+{
+	"data": {
+		"logged_out": true
+	}
+}
+```
+
+#### 6.4.4 パスワード再設定リクエスト
+- `POST /api/v1/auth/password-reset/request`
+- 認可: 不要
+- Request Body:
+```json
+{
+	"email": "user@example.com"
+}
+```
+- Response `200`:
+```json
+{
+	"data": {
+		"requested": true
+	}
+}
+```
+
+#### 6.4.5 パスワード再設定確定
+- `POST /api/v1/auth/password-reset/confirm`
+- 認可: 不要
+- Request Body:
+```json
+{
+	"token": "reset-token",
+	"new_password": "NewStrongPassword123"
+}
+```
+- Response `200`:
+```json
+{
+	"data": {
+		"reset": true
+	}
+}
+```
+
+### 6.5 タスクAPI
+
+#### 6.5.1 タスク作成
+- `POST /api/v1/tasks`
+- 認可: 必須
+- Request Body:
+```json
+{
+	"title": "買い物に行く",
+	"description": "牛乳とパン",
+	"status": "todo",
+	"priority": "medium",
+	"due_at": "2026-07-20T09:00:00Z",
+	"label_ids": [1, 2]
+}
+```
+- Response `201`:
+```json
+{
+	"data": {
+		"id": 10,
+		"title": "買い物に行く",
+		"description": "牛乳とパン",
+		"status": "todo",
+		"priority": "medium",
+		"due_at": "2026-07-20T09:00:00Z",
+		"completed_at": null,
+		"labels": [
+			{ "id": 1, "name": "私用", "color": "#1F6FEB" }
+		],
+		"created_at": "2026-07-14T12:00:00Z",
+		"updated_at": "2026-07-14T12:00:00Z"
+	}
+}
+```
+
+#### 6.5.2 タスク一覧取得
+- `GET /api/v1/tasks`
+- 認可: 必須
+- Query Parameters:
+	- `q` (string, 任意): キーワード検索（title/description）
+	- `status` (string, 任意): `todo` / `in_progress` / `done`
+	- `priority` (string, 任意): `low` / `medium` / `high`
+	- `label_id` (number, 任意): ラベル絞り込み
+	- `sort_by` (string, 任意): `due_at` / `created_at`
+	- `sort_order` (string, 任意): `asc` / `desc`
+	- `page` (number, 任意, default=1)
+	- `per_page` (number, 任意, default=20, max=100)
+- Response `200`:
+```json
+{
+	"data": [
+		{
+			"id": 10,
+			"title": "買い物に行く",
+			"status": "todo",
+			"priority": "medium",
+			"due_at": "2026-07-20T09:00:00Z",
+			"labels": [
+				{ "id": 1, "name": "私用", "color": "#1F6FEB" }
+			],
+			"created_at": "2026-07-14T12:00:00Z",
+			"updated_at": "2026-07-14T12:00:00Z"
+		}
+	],
+	"meta": {
+		"page": 1,
+		"per_page": 20,
+		"total": 1
+	}
+}
+```
+
+#### 6.5.3 タスク詳細取得
+- `GET /api/v1/tasks/{task_id}`
+- 認可: 必須
+- Response `200`: タスク作成レスポンスと同構造
+
+#### 6.5.4 タスク更新
+- `PATCH /api/v1/tasks/{task_id}`
+- 認可: 必須
+- Request Body（部分更新）:
+```json
+{
+	"title": "買い物に行く（週末）",
+	"status": "in_progress",
+	"priority": "high",
+	"due_at": "2026-07-21T09:00:00Z",
+	"label_ids": [2, 3]
+}
+```
+- Response `200`: 更新後タスク
+
+#### 6.5.5 タスク削除
+- `DELETE /api/v1/tasks/{task_id}`
+- 認可: 必須
+- Response `204`: Bodyなし
+
+#### 6.5.6 タスク完了
+- `POST /api/v1/tasks/{task_id}/complete`
+- 認可: 必須
+- Response `200`:
+```json
+{
+	"data": {
+		"id": 10,
+		"status": "done",
+		"completed_at": "2026-07-14T12:30:00Z"
+	}
+}
+```
+
+#### 6.5.7 タスク未完了へ戻す
+- `POST /api/v1/tasks/{task_id}/reopen`
+- 認可: 必須
+- Response `200`:
+```json
+{
+	"data": {
+		"id": 10,
+		"status": "todo",
+		"completed_at": null
+	}
+}
+```
+
+### 6.6 ラベルAPI
+
+#### 6.6.1 ラベル作成
+- `POST /api/v1/labels`
+- 認可: 必須
+- Request Body:
+```json
+{
+	"name": "私用",
+	"color": "#1F6FEB"
+}
+```
+- Response `201`:
+```json
+{
+	"data": {
+		"id": 1,
+		"name": "私用",
+		"color": "#1F6FEB",
+		"created_at": "2026-07-14T12:00:00Z",
+		"updated_at": "2026-07-14T12:00:00Z"
+	}
+}
+```
+
+#### 6.6.2 ラベル一覧取得
+- `GET /api/v1/labels`
+- 認可: 必須
+- Response `200`:
+```json
+{
+	"data": [
+		{
+			"id": 1,
+			"name": "私用",
+			"color": "#1F6FEB"
+		}
+	]
+}
+```
+
+#### 6.6.3 ラベル削除
+- `DELETE /api/v1/labels/{label_id}`
+- 認可: 必須
+- Response `204`: Bodyなし
+
+### 6.7 バリデーション仕様
+- `email`: RFC準拠のメール形式、最大255文字
+- `password`: 最小8文字（英字・数字を各1文字以上推奨）
+- `display_name`: 1-100文字
+- `title`: 1-200文字
+- `status`: `todo` / `in_progress` / `done`
+- `priority`: `low` / `medium` / `high`
+- `label.name`: 1-50文字（同一ユーザー内で一意）
+- `color`: `^#[0-9A-Fa-f]{6}$`
+
+### 6.8 認可仕様
+- すべてのタスク・ラベル操作は「自分のデータのみ」アクセス可能
+- 他ユーザーの `task_id` / `label_id` 指定時は `404 Not Found` を返す
+
+### 6.9 監査・ログ方針
+- 認証失敗、パスワード再設定要求、削除操作は監査ログ対象
+- ログにパスワード、トークン生値を出力しない
+
+## 7. 次の作業（仕様詳細化）
 次フェーズで、上記ユースケースごとに以下を定義する。
 - 事前条件
 - トリガー
