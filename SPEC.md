@@ -50,7 +50,115 @@
 - UC-501: モバイルでも使いやすく表示する
 - UC-502: ページ再読込後もタスク状態を保持する
 
-## 4. 次の作業（仕様詳細化）
+## 4. DB設計
+
+### 4.1 設計方針
+- DB種別: SQLite（開発・初期運用）
+- ORM: SQLAlchemy 2.x
+- 文字コード: UTF-8
+- 日時型: UTCで保存（`created_at`/`updated_at`/`completed_at`/`due_at`）
+- 論理削除は行わず、初版は物理削除を採用
+
+### 4.2 ER（概念）
+- `users` 1 --- n `tasks`
+- `tasks` n --- n `labels`（中間テーブル `task_labels`）
+- `users` 1 --- n `password_reset_tokens`
+
+### 4.3 テーブル定義
+
+#### 4.3.1 users
+- 用途: ログインユーザー情報を保持
+- 主なユースケース: UC-001, UC-002, UC-003, UC-004
+
+| カラム名 | 型 | NULL | 制約/備考 |
+|---|---|---|---|
+| id | INTEGER | NOT NULL | PK, AUTOINCREMENT |
+| email | TEXT | NOT NULL | UNIQUE, 255文字以内 |
+| password_hash | TEXT | NOT NULL | ハッシュ済みパスワード |
+| display_name | TEXT | NOT NULL | 1-100文字 |
+| is_active | INTEGER | NOT NULL | 0/1, default 1 |
+| created_at | DATETIME | NOT NULL | default CURRENT_TIMESTAMP |
+| updated_at | DATETIME | NOT NULL | default CURRENT_TIMESTAMP |
+
+#### 4.3.2 tasks
+- 用途: タスク本体
+- 主なユースケース: UC-101〜UC-107, UC-201〜UC-205, UC-301〜UC-303
+
+| カラム名 | 型 | NULL | 制約/備考 |
+|---|---|---|---|
+| id | INTEGER | NOT NULL | PK, AUTOINCREMENT |
+| user_id | INTEGER | NOT NULL | FK -> users.id ON DELETE CASCADE |
+| title | TEXT | NOT NULL | 1-200文字 |
+| description | TEXT | NULL | 詳細説明 |
+| status | TEXT | NOT NULL | `todo` / `in_progress` / `done` |
+| priority | TEXT | NOT NULL | `low` / `medium` / `high` |
+| due_at | DATETIME | NULL | 期限 |
+| completed_at | DATETIME | NULL | 完了日時 |
+| created_at | DATETIME | NOT NULL | default CURRENT_TIMESTAMP |
+| updated_at | DATETIME | NOT NULL | default CURRENT_TIMESTAMP |
+
+#### 4.3.3 labels
+- 用途: タスク分類ラベル
+- 主なユースケース: UC-401, UC-402
+
+| カラム名 | 型 | NULL | 制約/備考 |
+|---|---|---|---|
+| id | INTEGER | NOT NULL | PK, AUTOINCREMENT |
+| user_id | INTEGER | NOT NULL | FK -> users.id ON DELETE CASCADE |
+| name | TEXT | NOT NULL | 1-50文字 |
+| color | TEXT | NULL | HEXカラー（例: #1F6FEB） |
+| created_at | DATETIME | NOT NULL | default CURRENT_TIMESTAMP |
+| updated_at | DATETIME | NOT NULL | default CURRENT_TIMESTAMP |
+
+補足制約:
+- `UNIQUE(user_id, name)`（同一ユーザー内でラベル名重複禁止）
+
+#### 4.3.4 task_labels
+- 用途: タスクとラベルの多対多関連
+
+| カラム名 | 型 | NULL | 制約/備考 |
+|---|---|---|---|
+| task_id | INTEGER | NOT NULL | FK -> tasks.id ON DELETE CASCADE |
+| label_id | INTEGER | NOT NULL | FK -> labels.id ON DELETE CASCADE |
+| created_at | DATETIME | NOT NULL | default CURRENT_TIMESTAMP |
+
+主キー/一意制約:
+- `PRIMARY KEY(task_id, label_id)`
+
+#### 4.3.5 password_reset_tokens
+- 用途: パスワード再設定トークン管理
+- 主なユースケース: UC-004
+
+| カラム名 | 型 | NULL | 制約/備考 |
+|---|---|---|---|
+| id | INTEGER | NOT NULL | PK, AUTOINCREMENT |
+| user_id | INTEGER | NOT NULL | FK -> users.id ON DELETE CASCADE |
+| token_hash | TEXT | NOT NULL | UNIQUE |
+| expires_at | DATETIME | NOT NULL | 失効日時 |
+| used_at | DATETIME | NULL | 使用済み日時 |
+| created_at | DATETIME | NOT NULL | default CURRENT_TIMESTAMP |
+
+### 4.4 インデックス設計
+- `idx_users_email` on `users(email)`（UNIQUE）
+- `idx_tasks_user_status` on `tasks(user_id, status)`
+- `idx_tasks_user_due_at` on `tasks(user_id, due_at)`
+- `idx_tasks_user_priority` on `tasks(user_id, priority)`
+- `idx_tasks_user_created_at` on `tasks(user_id, created_at DESC)`
+- `idx_labels_user_name` on `labels(user_id, name)`（UNIQUE）
+- `idx_prt_user_expires` on `password_reset_tokens(user_id, expires_at)`
+
+### 4.5 データ整合性ルール
+- `status = done` のとき `completed_at IS NOT NULL` を推奨（アプリ層で保証）
+- `status != done` のとき `completed_at IS NULL` を推奨（アプリ層で保証）
+- `due_at` は過去日も許可（期限超過タスク表現のため）
+- `title` 空文字禁止（バリデーション）
+
+### 4.6 SQLAlchemy実装メモ
+- SQLiteでは厳密なENUM型を使わず、`String + CHECK制約`で状態値を制御する
+- `updated_at` は更新時に自動更新（ORMイベントまたは`onupdate`）
+- N+1回避のため、タスク一覧取得時はラベルを`selectinload`で事前取得する
+
+## 5. 次の作業（仕様詳細化）
 次フェーズで、上記ユースケースごとに以下を定義する。
 - 事前条件
 - トリガー
