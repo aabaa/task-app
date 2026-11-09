@@ -1,0 +1,23 @@
+# Local AI-agent permissions and state
+/.claude/settings.json
+/.claude/settings.local.json
+/.claude/*.local.json
+/.codex
+
+# Secrets and local environments
+.env
+.env.*
+!.env.example
+!.env.sample
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Frontend local dependencies and generated output
+node_modules/
+dist/
+
+# Operating system files
+.DS_Store
+Thumbs.db
